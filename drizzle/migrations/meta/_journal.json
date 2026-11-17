@@ -36,6 +36,13 @@
       "when": 1794922946538,
       "tag": "0004_add_service_categories_and_tabs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794923492390,
+      "tag": "0005_restrict_public_tabs_to_visible_services",
+      "breakpoints": true
     }
   ]
 }
