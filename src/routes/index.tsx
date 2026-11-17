@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ImageUp, LogOut, MessageCircle, Menu, Pencil, Plus } from "lucide-react";
+import { Activity, ImageUp, LogOut, MessageCircle, Menu, Pencil, Plus, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { Tables } from "@/integrations/supabase/types";
 import { getFixedServicePrice } from "@/lib/service-pricing";
+import { labelForEventType } from "@/lib/bachs-webhook";
 import techtallyIcon from "../assets/techtally-icon.png";
 import serviceOffice from "../assets/service-office.jpg";
 import serviceCad from "../assets/service-cad.jpg";
@@ -257,6 +258,81 @@ function catalogCard(service: ServiceRow, index: number): ServiceCardData {
   };
 }
 
+type PaymentEventRow = Pick<Tables<"techtally_payment_events">, "id" | "event_id" | "event_type" | "amount" | "currency" | "customer_email" | "status" | "reference" | "event_created_at" | "received_at">;
+
+function eventTone(type: string): string {
+  if (/failed|expired|dispute/.test(type)) return "bg-destructive/10 text-destructive";
+  if (/succeeded|completed|saved|paid/.test(type)) return "bg-primary/10 text-primary";
+  return "bg-muted text-muted-foreground";
+}
+
+function PaymentActivity() {
+  const [events, setEvents] = useState<PaymentEventRow[] | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/admin?view=payment-events", { cache: "no-store" });
+      const result = (await response.json()) as PaymentEventRow[] | { error?: string };
+      if (!response.ok || !Array.isArray(result)) {
+        throw new Error("error" in result ? result.error ?? "Could not load payment activity." : "Could not load payment activity.");
+      }
+      setEvents(result);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load payment activity.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  return (
+    <section className="space-y-3" aria-labelledby="payment-activity-heading">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h3 id="payment-activity-heading" className="font-semibold">Payment activity</h3>
+          <p className="text-xs text-muted-foreground">Events Bachs sends to TechTally — newest first.</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? "animate-spin" : undefined} /> Refresh</Button>
+      </div>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {events && events.length === 0 && (
+        <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          <Activity className="h-5 w-5" aria-hidden="true" />
+          <p>No payment events yet. They will appear here as soon as Bachs sends them.</p>
+        </div>
+      )}
+      {events && events.length > 0 && (
+        <ul className="max-h-[60vh] divide-y divide-border overflow-y-auto">
+          {events.map((event) => (
+            <li key={event.id} className="grid gap-1 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${eventTone(event.event_type)}`}>{labelForEventType(event.event_type)}</span>
+                  {event.status && <span className="text-xs text-muted-foreground">{event.status.replace(/_/g, " ")}</span>}
+                </div>
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {[event.customer_email, event.reference].filter(Boolean).join(" · ") || event.event_id}
+                </p>
+              </div>
+              <div className="text-left sm:text-right">
+                {event.amount && <p className="text-sm font-semibold">{event.currency === "USD" || !event.currency ? "$" : ""}{event.amount} {event.currency ?? ""}</p>}
+                <p className="text-xs text-muted-foreground">{new Date(event.event_created_at ?? event.received_at).toLocaleString()}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
   const [signedIn, setSignedIn] = useState(false);
   const [code, setCode] = useState("");
@@ -271,6 +347,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
   const [price, setPrice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"services" | "payments">("services");
 
   const loadServices = async () => {
     const response = await fetch("/api/admin", { cache: "no-store" });
@@ -388,6 +465,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
         });
       }
       setSignedIn(false);
+      setView("services");
       setActiveService(null);
       setCreating(false);
       setError("");
@@ -422,6 +500,11 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => handleClose(false)}><LogOut /> Sign out</Button>
             </div>
+            <div className="flex gap-2" role="tablist" aria-label="Admin sections">
+              <Button type="button" role="tab" aria-selected={view === "services"} variant={view === "services" ? "default" : "outline"} size="sm" onClick={() => setView("services")}><Pencil /> Services</Button>
+              <Button type="button" role="tab" aria-selected={view === "payments"} variant={view === "payments" ? "default" : "outline"} size="sm" onClick={() => setView("payments")}><Activity /> Payment activity</Button>
+            </div>
+            {view === "payments" ? <PaymentActivity /> : (
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
               <section className="space-y-3" aria-labelledby="admin-services-heading">
                 <div className="flex items-center justify-between gap-2">
@@ -497,6 +580,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
                 )}
               </section>
             </div>
+            )}
           </div>
         )}
       </DialogContent>

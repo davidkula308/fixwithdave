@@ -197,6 +197,16 @@ export const Route = createFileRoute("/api/admin")({
               { status: 401, headers: { "Cache-Control": "no-store" } },
             );
           }
+          if (new URL(request.url).searchParams.get("view") === "payment-events") {
+            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+            const { data, error } = await supabaseAdmin
+              .from("techtally_payment_events")
+              .select("id, event_id, event_type, amount, currency, customer_email, status, reference, event_created_at, received_at")
+              .order("received_at", { ascending: false })
+              .limit(100);
+            if (error) throw error;
+            return Response.json(data ?? [], { headers: { "Cache-Control": "no-store" } });
+          }
           const { data, error } = await listServices();
           if (error) throw error;
           return Response.json(data ?? [], { headers: { "Cache-Control": "no-store" } });

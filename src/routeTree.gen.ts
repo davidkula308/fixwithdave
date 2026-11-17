@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAdminRouteImport } from './routes/api/admin'
 import { Route as ApiCatalogRouteImport } from './routes/api/catalog'
 import { Route as ApiCheckoutRouteImport } from './routes/api/checkout'
+import { Route as ApiPublicBachsWebhookRouteImport } from './routes/api/public/bachs-webhook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const ApiCheckoutRoute = ApiCheckoutRouteImport.update({
   path: '/api/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicBachsWebhookRoute = ApiPublicBachsWebhookRouteImport.update({
+  id: '/api/public/bachs-webhook',
+  path: '/api/public/bachs-webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/admin': typeof ApiAdminRoute
   '/api/catalog': typeof ApiCatalogRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/public/bachs-webhook': typeof ApiPublicBachsWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/admin': typeof ApiAdminRoute
   '/api/catalog': typeof ApiCatalogRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/public/bachs-webhook': typeof ApiPublicBachsWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,30 @@ export interface FileRoutesById {
   '/api/admin': typeof ApiAdminRoute
   '/api/catalog': typeof ApiCatalogRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/public/bachs-webhook': typeof ApiPublicBachsWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/admin' | '/api/catalog' | '/api/checkout'
+  fullPaths:
+    | '/'
+    | '/api/admin'
+    | '/api/catalog'
+    | '/api/checkout'
+    | '/api/public/bachs-webhook'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/admin' | '/api/catalog' | '/api/checkout'
-  id: '__root__' | '/' | '/api/admin' | '/api/catalog' | '/api/checkout'
+  to:
+    | '/'
+    | '/api/admin'
+    | '/api/catalog'
+    | '/api/checkout'
+    | '/api/public/bachs-webhook'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/admin'
+    | '/api/catalog'
+    | '/api/checkout'
+    | '/api/public/bachs-webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +92,7 @@ export interface RootRouteChildren {
   ApiAdminRoute: typeof ApiAdminRoute
   ApiCatalogRoute: typeof ApiCatalogRoute
   ApiCheckoutRoute: typeof ApiCheckoutRoute
+  ApiPublicBachsWebhookRoute: typeof ApiPublicBachsWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/bachs-webhook': {
+      id: '/api/public/bachs-webhook'
+      path: '/api/public/bachs-webhook'
+      fullPath: '/api/public/bachs-webhook'
+      preLoaderRoute: typeof ApiPublicBachsWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +140,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAdminRoute: ApiAdminRoute,
   ApiCatalogRoute: ApiCatalogRoute,
   ApiCheckoutRoute: ApiCheckoutRoute,
+  ApiPublicBachsWebhookRoute: ApiPublicBachsWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -80,6 +80,48 @@ export type Database = {
         }
         Relationships: []
       }
+      techtally_payment_events: {
+        Row: {
+          amount: string | null
+          currency: string | null
+          customer_email: string | null
+          event_created_at: string | null
+          event_id: string
+          event_type: string
+          id: string
+          payload: Json
+          received_at: string
+          reference: string | null
+          status: string | null
+        }
+        Insert: {
+          amount?: string | null
+          currency?: string | null
+          customer_email?: string | null
+          event_created_at?: string | null
+          event_id: string
+          event_type: string
+          id?: string
+          payload: Json
+          received_at?: string
+          reference?: string | null
+          status?: string | null
+        }
+        Update: {
+          amount?: string | null
+          currency?: string | null
+          customer_email?: string | null
+          event_created_at?: string | null
+          event_id?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          received_at?: string
+          reference?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
       techtally_services: {
         Row: {
           created_at: string
