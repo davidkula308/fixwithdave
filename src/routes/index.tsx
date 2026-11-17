@@ -61,7 +61,7 @@ function loadBachsCheckout(): Promise<void> {
   });
 }
 
-function PaymentDialog({ open, onOpenChange, fixedAmount }: { open: boolean; onOpenChange: (open: boolean) => void; fixedAmount?: string | null }) {
+function PaymentDialog({ open, onOpenChange, fixedAmount, serviceId }: { open: boolean; onOpenChange: (open: boolean) => void; fixedAmount?: string | null; serviceId?: string | null }) {
   const [step, setStep] = useState<"amount" | "email">("amount");
   const [amount, setAmount] = useState("");
   const [email, setEmail] = useState("");
@@ -110,7 +110,7 @@ function PaymentDialog({ open, onOpenChange, fixedAmount }: { open: boolean; onO
       const response = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: amount.trim(), email: email.trim() }),
+        body: JSON.stringify({ amount: fixedAmount ?? amount.trim(), email: email.trim(), serviceId: serviceId ?? undefined }),
       });
       const result = (await response.json()) as { checkoutUrl?: string; error?: string };
       if (!response.ok || !result.checkoutUrl) {
@@ -206,7 +206,7 @@ type ServiceCardData = {
   title: string;
   description: string;
   items: string[];
-  highlight: string | null;
+  highlight?: string | null;
   tag: string | null;
   img: string;
   imgAlt: string;
@@ -238,7 +238,7 @@ function catalogCard(service: ServiceRow, index: number): ServiceCardData {
     { letter: "W", iconColor: "text-emerald-600", iconBg: "bg-emerald-600/10" },
     { letter: "P", iconColor: "text-purple-600", iconBg: "bg-purple-600/10" },
   ];
-  const tone = palette[index % palette.length] ?? palette[0]!;
+  const tone = palette[index % palette.length] ?? { letter: "S", iconColor: "text-primary", iconBg: "bg-primary/10" };
   return {
     id: service.id,
     serviceKey: service.service_key,
@@ -995,7 +995,7 @@ function Index() {
           © {new Date().getFullYear()} TechTally. PC support and software services.
         </p>
       </footer>
-      <PaymentDialog open={paymentOpen} onOpenChange={setPaymentOpen} fixedAmount={fixedPaymentAmount} />
+      <PaymentDialog open={paymentOpen} onOpenChange={setPaymentOpen} fixedAmount={fixedPaymentAmount} serviceId={paymentServiceId} />
       <AdminPanel open={adminOpen} onOpenChange={setAdminOpen} onSaved={() => void refreshCatalog()} />
     </div>
   );

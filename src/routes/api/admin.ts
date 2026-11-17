@@ -226,11 +226,13 @@ export const Route = createFileRoute("/api/admin")({
             ? Number(input["price_usd"])
             : Number.NaN;
 
-        if (typeof title !== "string" || !title.trim() || title.trim().length > 100 ||
-            typeof description !== "string" || description.length > 2000 ||
-            typeof showPrice !== "boolean" || typeof imageAlt !== "string" || imageAlt.length > 180 ||
-            !isImageData(imageData) || (id !== undefined && typeof id !== "string") ||
-            Number.isNaN(validPrice) || (showPrice && (validPrice === null || validPrice <= 0))) {
+        if (
+          typeof title !== "string" || !title.trim() || title.trim().length > 100 ||
+          typeof description !== "string" || description.length > 2000 ||
+          typeof showPrice !== "boolean" || typeof imageAlt !== "string" || imageAlt.length > 180 ||
+          !isImageData(imageData) || (id !== undefined && typeof id !== "string") ||
+          Number.isNaN(validPrice) || (showPrice && (validPrice === null || validPrice <= 0))
+        ) {
           return Response.json({ error: "Enter a title and a valid price, description, and image." }, { status: 400 });
         }
 
