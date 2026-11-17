@@ -55,6 +55,15 @@ export const Route = createFileRoute("/api/checkout")({
           return Response.json({ error: "Payments are temporarily unavailable. Please try again later." }, { status: 503 });
         }
 
+        const payload: Record<string, unknown> = {
+          pricing: { amount, currency: "USD" },
+          customer: { email: input.email.trim() },
+        };
+        if (isPubliclyReachable(requestOrigin)) {
+          payload.success_url = `${requestOrigin}/?payment=complete`;
+          payload.cancel_url = `${requestOrigin}/?payment=cancelled`;
+        }
+
         let upstream: Response;
         try {
           upstream = await fetch(CHECKOUT_API_URL, {
@@ -64,12 +73,7 @@ export const Route = createFileRoute("/api/checkout")({
               "Content-Type": "application/json",
               "Idempotency-Key": crypto.randomUUID(),
             },
-            body: JSON.stringify({
-              pricing: { amount, currency: "USD" },
-              customer: { email: input.email.trim() },
-              success_url: `${requestOrigin}/?payment=complete`,
-              cancel_url: `${requestOrigin}/?payment=cancelled`,
-            }),
+            body: JSON.stringify(payload),
           });
         } catch (error) {
           console.error("Bachs checkout request failed:", error);
