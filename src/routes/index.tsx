@@ -202,6 +202,7 @@ type ServiceRow = Tables<"techtally_services">;
 type ServiceCardData = {
   id: string;
   serviceKey: string | null;
+  sectionId: string;
   title: string;
   description: string;
   items: string[];
@@ -239,8 +240,9 @@ function catalogCard(service: ServiceRow, index: number): ServiceCardData {
   ];
   const tone = palette[index % palette.length] ?? palette[0]!;
   return {
-    id: service.service_key || service.id,
+    id: service.id,
     serviceKey: service.service_key,
+    sectionId: service.service_key || service.id,
     title: service.title,
     description: service.description,
     items: descriptionItems.length ? descriptionItems : service.items,
@@ -576,6 +578,16 @@ const services = [
   },
 ];
 
+const defaultServices: ServiceCardData[] = services.map((service, index) => ({
+  ...service,
+  id: service.id,
+  serviceKey: service.id,
+  sectionId: service.id,
+  description: service.items.join("\n"),
+  price: null,
+  showPrice: false,
+}));
+
 const games = [
   { img: gameCod, title: "Call of Duty", sub: "Infinite Warfare", alt: "Call of Duty Infinite Warfare style game art" },
   { img: gameGta, title: "GTA V", sub: "Premium Edition", alt: "Grand Theft Auto V style game art" },
@@ -595,6 +607,35 @@ const sideMenu = [
 function Index() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [paymentServiceId, setPaymentServiceId] = useState<string | null>(null);
+  const [serviceCatalog, setServiceCatalog] = useState<ServiceCardData[]>(defaultServices);
+
+  const refreshCatalog = async () => {
+    try {
+      const response = await fetch("/api/catalog", { cache: "no-store" });
+      const result = (await response.json()) as ServiceRow[] | { error?: string };
+      if (response.ok && Array.isArray(result)) {
+        setServiceCatalog(result.map(catalogCard));
+      }
+    } catch (error) {
+      console.error("Could not refresh the TechTally service list:", error);
+    }
+  };
+
+  useEffect(() => {
+    void refreshCatalog();
+  }, []);
+
+  const openPayment = (serviceId: string | null = null) => {
+    setPaymentServiceId(serviceId);
+    setPaymentOpen(true);
+  };
+
+  const fixedPriceService = serviceCatalog.find((service) => service.id === paymentServiceId);
+  const fixedPaymentAmount = fixedPriceService
+    ? getFixedServicePrice(fixedPriceService.showPrice, fixedPriceService.price)
+    : null;
 
   return (
     <div className="min-h-screen bg-background font-sans text-secondary">
@@ -663,6 +704,17 @@ function Index() {
           </div>
 
           <div className="mt-6 border-t border-slate-200 pt-6">
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-3 flex w-full justify-center"
+              onClick={() => {
+                setMenuOpen(false);
+                setAdminOpen(true);
+              }}
+            >
+              Admin Panel
+            </Button>
             <a
               href={WHATSAPP_URL}
               target="_blank"
@@ -719,10 +771,10 @@ function Index() {
           </div>
 
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {services.map((s) => (
+            {serviceCatalog.map((s) => (
               <div
-                key={s.title}
-                id={s.id}
+                key={s.id}
+                id={s.sectionId}
                 className="group overflow-hidden rounded-2xl border border-slate-100 bg-background p-0 transition-all duration-300 hover:bg-card hover:shadow-xl"
               >
                 <div className="relative">
@@ -759,8 +811,10 @@ function Index() {
                   >
                     Book Now →
                   </a>
-                    <Button type="button" size="sm" onClick={() => setPaymentOpen(true)}>
-                      Pay Now
+                    <Button type="button" size="sm" onClick={() => openPayment(s.showPrice ? s.id : null)}>
+                      {s.showPrice && getFixedServicePrice(s.showPrice, s.price)
+                        ? `Pay $${getFixedServicePrice(s.showPrice, s.price)} USD`
+                        : "Pay Now"}
                     </Button>
                     </div>
                 </div>
@@ -813,7 +867,7 @@ function Index() {
                     >
                       CLEAN IT NOW
                     </a>
-                    <Button type="button" onClick={() => setPaymentOpen(true)}>
+                    <Button type="button" onClick={() => openPayment()}>
                       Pay Now
                     </Button>
                   </div>
@@ -905,7 +959,7 @@ function Index() {
                   <Button
                     type="button"
                     size="sm"
-                    onClick={() => setPaymentOpen(true)}
+                    onClick={() => openPayment()}
                     className="mt-3 w-fit"
                   >
                     Pay Now
@@ -946,7 +1000,8 @@ function Index() {
           © {new Date().getFullYear()} TechTally. PC support and software services.
         </p>
       </footer>
-      <PaymentDialog open={paymentOpen} onOpenChange={setPaymentOpen} />
+      <PaymentDialog open={paymentOpen} onOpenChange={setPaymentOpen} fixedAmount={fixedPaymentAmount} />
+      <AdminPanel open={adminOpen} onOpenChange={setAdminOpen} onSaved={() => void refreshCatalog()} />
     </div>
   );
 }

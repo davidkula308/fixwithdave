@@ -16,6 +16,6 @@ describe("fixed service pricing", () => {
   });
 
   it("uses the saved service price even when a customer submits a different amount", () => {
-    expect(resolveCheckoutServicePrice({ show_price: true, price_usd: 317.22 }, "1.00")).toBe("317.22");
+    expect(resolveCheckoutServicePrice({ show_price: true, price_usd: 317.22 })).toBe("317.22");
   });
 });
