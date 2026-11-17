@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { isValidReceiptEmail, parseUsdAmount } from "@/lib/payment-validation";
 
-const CHECKOUT_API_URL = "https://connector-gateway.lovable.dev/udc_bachs_payments_2/v1/checkout-sessions";
+const CHECKOUT_API_URL = "https://api.bachs.io/v1/checkout-sessions";
 
 export const Route = createFileRoute("/api/checkout")({
   server: {
@@ -35,10 +35,9 @@ export const Route = createFileRoute("/api/checkout")({
           return Response.json({ error: "Enter a valid amount and receipt email." }, { status: 400 });
         }
 
-        const apiKey = process.env["UDC_BACHS_PAYMENTS_2_API_KEY"];
-        const lovableApiKey = process.env["LOVABLE_API_KEY"];
-        if (!apiKey || !lovableApiKey) {
-          console.error("Bachs checkout connection credentials are unavailable.");
+        const apiKey = process.env["BACHS_API_KEY"];
+        if (!apiKey) {
+          console.error("Bachs payment credentials are unavailable.");
           return Response.json({ error: "Payments are temporarily unavailable. Please try again later." }, { status: 503 });
         }
 
@@ -47,8 +46,7 @@ export const Route = createFileRoute("/api/checkout")({
           upstream = await fetch(CHECKOUT_API_URL, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${lovableApiKey}`,
-              "X-Connection-Api-Key": apiKey,
+              Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
               "Idempotency-Key": crypto.randomUUID(),
             },
