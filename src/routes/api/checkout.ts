@@ -4,6 +4,20 @@ import { isValidReceiptEmail, parseUsdAmount } from "@/lib/payment-validation";
 
 const CHECKOUT_API_URL = "https://api.bachs.io/v1/checkout-sessions";
 
+// Bachs rejects success_url/cancel_url that point at a machine-only address,
+// so redirect links are only sent when the site is reachable from the internet.
+function isPubliclyReachable(origin: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname;
+  return host !== "localhost" && !host.endsWith(".localhost") && !/^\d+\.\d+\.\d+\.\d+$/.test(host) && host !== "[::1]";
+}
+
 export const Route = createFileRoute("/api/checkout")({
   server: {
     handlers: {
