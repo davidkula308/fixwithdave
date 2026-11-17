@@ -1,12 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { MessageCircle, Menu } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ImageUp, LogOut, MessageCircle, Menu, Pencil, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import type { Tables } from "@/integrations/supabase/types";
+import { getFixedServicePrice } from "@/lib/service-pricing";
 import techtallyIcon from "../assets/techtally-icon.png";
 import serviceOffice from "../assets/service-office.jpg";
 import serviceCad from "../assets/service-cad.jpg";
@@ -57,12 +61,21 @@ function loadBachsCheckout(): Promise<void> {
   });
 }
 
-function PaymentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function PaymentDialog({ open, onOpenChange, fixedAmount }: { open: boolean; onOpenChange: (open: boolean) => void; fixedAmount?: string | null }) {
   const [step, setStep] = useState<"amount" | "email">("amount");
   const [amount, setAmount] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setStep("amount");
+      setAmount(fixedAmount ?? "");
+      setEmail("");
+      setError("");
+    }
+  }, [open, fixedAmount]);
 
   const close = (nextOpen: boolean) => {
     if (!nextOpen) {
@@ -77,11 +90,13 @@ function PaymentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
 
   const continueToEmail = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(amount.trim())) {
+    const selectedAmount = fixedAmount ?? amount;
+    const parsedAmount = Number(selectedAmount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(selectedAmount.trim())) {
       setError("Enter an amount greater than zero, with up to two decimal places.");
       return;
     }
+    setAmount(selectedAmount);
     setError("");
     setStep("email");
   };
@@ -141,6 +156,7 @@ function PaymentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
                 placeholder="0.00"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
+                readOnly={Boolean(fixedAmount)}
                 required
               />
             </div>
@@ -176,6 +192,311 @@ function PaymentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
               </Button>
             </DialogFooter>
           </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type ServiceRow = Tables<"techtally_services">;
+type ServiceCardData = {
+  id: string;
+  serviceKey: string | null;
+  title: string;
+  description: string;
+  items: string[];
+  highlight: string | null;
+  tag: string | null;
+  img: string;
+  imgAlt: string;
+  price: number | null;
+  showPrice: boolean;
+  letter: string;
+  iconColor: string;
+  iconBg: string;
+};
+
+const serviceImageByKey: Record<string, string> = {
+  "microsoft-365": serviceOffice,
+  "arch-design": serviceCad,
+  "windows-security": serviceWindows,
+  assignments: serviceAssignments,
+};
+
+function resolveServiceImage(serviceKey: string | null, imageData: string): string {
+  if (imageData) return imageData;
+  if (serviceKey && serviceImageByKey[serviceKey]) return serviceImageByKey[serviceKey];
+  return serviceWindows;
+}
+
+function catalogCard(service: ServiceRow, index: number): ServiceCardData {
+  const descriptionItems = service.description.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const palette = [
+    { letter: "M", iconColor: "text-blue-600", iconBg: "bg-blue-600/10" },
+    { letter: "A", iconColor: "text-orange-600", iconBg: "bg-orange-600/10" },
+    { letter: "W", iconColor: "text-emerald-600", iconBg: "bg-emerald-600/10" },
+    { letter: "P", iconColor: "text-purple-600", iconBg: "bg-purple-600/10" },
+  ];
+  const tone = palette[index % palette.length] ?? palette[0]!;
+  return {
+    id: service.service_key || service.id,
+    serviceKey: service.service_key,
+    title: service.title,
+    description: service.description,
+    items: descriptionItems.length ? descriptionItems : service.items,
+    highlight: service.highlight,
+    tag: service.tag,
+    img: resolveServiceImage(service.service_key, service.image_data),
+    imgAlt: service.image_alt || service.title,
+    price: service.price_usd,
+    showPrice: service.show_price,
+    letter: tone.letter,
+    iconColor: tone.iconColor,
+    iconBg: tone.iconBg,
+  };
+}
+
+function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
+  const [signedIn, setSignedIn] = useState(false);
+  const [code, setCode] = useState("");
+  const [services, setServices] = useState<ServiceRow[]>([]);
+  const [activeService, setActiveService] = useState<ServiceRow | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [imageData, setImageData] = useState("");
+  const [imageAlt, setImageAlt] = useState("");
+  const [showPrice, setShowPrice] = useState(false);
+  const [price, setPrice] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadServices = async () => {
+    const response = await fetch("/api/admin", { cache: "no-store" });
+    const result = (await response.json()) as ServiceRow[] | { error?: string };
+    if (!response.ok || !Array.isArray(result)) {
+      throw new Error("error" in result ? result.error ?? "Could not load services." : "Could not load services.");
+    }
+    setServices(result);
+  };
+
+  const startEditing = (service: ServiceRow | null) => {
+    setActiveService(service);
+    setCreating(service === null);
+    setTitle(service?.title ?? "");
+    setDescription(service?.description ?? "");
+    setImageData(service?.image_data ?? "");
+    setImageAlt(service?.image_alt ?? "");
+    setShowPrice(service?.show_price ?? false);
+    setPrice(service?.price_usd === null || service?.price_usd === undefined ? "" : String(service.price_usd));
+    setError("");
+  };
+
+  const handleImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(file.type) || file.size > 4 * 1024 * 1024) {
+      setError("Choose a JPG, PNG, or WebP image up to 4 MB.");
+      event.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setImageData(reader.result);
+        setImageAlt(file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "));
+        setError("");
+      }
+    };
+    reader.onerror = () => setError("That image could not be opened.");
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login", pin: code }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Could not sign in.");
+      setSignedIn(true);
+      setCode("");
+      await loadServices();
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Could not sign in.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!title.trim() || !description.trim() || (creating && !imageData)) {
+      setError(creating && !imageData ? "Upload an image for this new service." : "Add a title and description.");
+      return;
+    }
+    if (showPrice && (!/^\d+(?:\.\d{1,2})?$/.test(price.trim()) || Number(price) <= 0)) {
+      setError("Enter a price in US dollars with up to two decimal places.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save-service",
+          id: activeService?.id,
+          title,
+          description,
+          image_data: imageData,
+          image_alt: imageAlt,
+          show_price: showPrice,
+          price_usd: price,
+        }),
+      });
+      const result = (await response.json()) as ServiceRow[] | { error?: string };
+      if (!response.ok || !Array.isArray(result)) {
+        throw new Error("error" in result ? result.error ?? "Could not save this service." : "Could not save this service.");
+      }
+      setServices(result);
+      setActiveService(null);
+      setCreating(false);
+      onSaved();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save this service.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleClose = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      if (signedIn) {
+        void fetch("/api/admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "logout" }),
+        });
+      }
+      setSignedIn(false);
+      setActiveService(null);
+      setCreating(false);
+      setError("");
+    }
+    onOpenChange(nextOpen);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        {!signedIn ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Admin Panel</DialogTitle>
+              <DialogDescription>Enter your admin code to manage TechTally services.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="admin-code">Admin code</Label>
+                <Input id="admin-code" type="password" inputMode="numeric" autoComplete="current-password" value={code} onChange={(event) => setCode(event.target.value)} required />
+              </div>
+              {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+              <DialogFooter><Button type="submit" disabled={busy}>{busy ? "Checking code…" : "Continue"}</Button></DialogFooter>
+            </form>
+          </>
+        ) : (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4 pr-8">
+              <div>
+                <DialogTitle className="text-xl">Admin Panel</DialogTitle>
+                <DialogDescription>Manage service titles, descriptions, images, and fixed prices.</DialogDescription>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => handleClose(false)}><LogOut /> Sign out</Button>
+            </div>
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+              <section className="space-y-3" aria-labelledby="admin-services-heading">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 id="admin-services-heading" className="font-semibold">Services ({services.length})</h3>
+                  <Button type="button" size="sm" onClick={() => startEditing(null)}><Plus /> Add service</Button>
+                </div>
+                <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+                  {services.map((service) => (
+                    <article key={service.id} className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-border py-3">
+                      <img src={resolveServiceImage(service.service_key, service.image_data)} alt={service.image_alt || service.title} className="h-16 w-[4.5rem] rounded-md object-cover" />
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-semibold">{service.title}</h4>
+                        <p className="line-clamp-2 whitespace-pre-line text-xs text-muted-foreground">{service.description}</p>
+                        {service.show_price && service.price_usd !== null && <p className="mt-1 text-xs font-semibold text-primary">${Number(service.price_usd).toFixed(2)} USD</p>}
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={() => startEditing(service)} aria-label={`Edit ${service.title}`}><Pencil /> Edit</Button>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="min-w-0 border-t border-border pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0" aria-label={creating ? "Add service" : activeService ? "Edit service" : "Service editor"}>
+                {activeService || creating ? (
+                  <form onSubmit={handleSave} className="space-y-4">
+                    <h3 className="font-semibold">{creating ? "Add service" : "Edit service"}</h3>
+                    <div className="space-y-2">
+                      <Label htmlFor="service-title">Title</Label>
+                      <Input id="service-title" maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="service-description">Description</Label>
+                      <Textarea id="service-description" maxLength={2000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="service-image">Service card image</Label>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button type="button" variant="outline" asChild><label htmlFor="service-image" className="cursor-pointer"><ImageUp /> Upload image</label></Button>
+                        <input id="service-image" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImage} className="sr-only" />
+                        <span className="text-xs text-muted-foreground">JPG, PNG, or WebP · up to 4 MB</span>
+                      </div>
+                      {(imageData || activeService) && (
+                        <img src={imageData || resolveServiceImage(activeService?.service_key ?? null, "")} alt="Service image preview" className="mt-2 aspect-[8/5] w-full max-w-sm rounded-md object-cover" />
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="service-image-alt">Image description</Label>
+                      <Input id="service-image-alt" maxLength={180} value={imageAlt} onChange={(event) => setImageAlt(event.target.value)} placeholder={title || "Describe the image"} />
+                    </div>
+                    <div className="flex items-center justify-between gap-4 border-y border-border py-3">
+                      <Label htmlFor="show-price-tag" className="cursor-pointer">Show Price Tag</Label>
+                      <Switch id="show-price-tag" checked={showPrice} onCheckedChange={setShowPrice} />
+                    </div>
+                    {showPrice && (
+                      <div className="space-y-2">
+                        <Label htmlFor="service-price">Price (USD)</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                          <Input id="service-price" type="number" min="0.01" step="0.01" inputMode="decimal" className="pl-7" placeholder="0.00" value={price} onChange={(event) => setPrice(event.target.value)} required />
+                        </div>
+                      </div>
+                    )}
+                    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button type="button" variant="outline" onClick={() => { setActiveService(null); setCreating(false); setError(""); }}>Cancel</Button>
+                      <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save service"}</Button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+                    <Pencil className="h-5 w-5" aria-hidden="true" />
+                    <p>Choose a service to edit, or add a new one.</p>
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
         )}
       </DialogContent>
     </Dialog>
