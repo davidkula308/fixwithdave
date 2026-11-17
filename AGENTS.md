@@ -10,4 +10,4 @@
 <!-- LOVABLE:END -->
 
 - Keep the public service catalog in Lovable Cloud; public reads are safe, but edits and admin-code checks stay server-verified, code values are stored as salted hashes, and uploaded images persist with each listing because public storage is unavailable.
-- Create payment sessions in a TanStack server route using the linked Bachs connection; expose only the hosted checkout URL to the browser so credentials remain private.
+- Create payment sessions in a TanStack server route calling Bachs with the BACHS_API_KEY project secret; expose only the hosted checkout URL to the browser so credentials stay private, and send Bachs success/cancel redirect URLs only from a publicly reachable origin because Bachs rejects machine-only addresses.

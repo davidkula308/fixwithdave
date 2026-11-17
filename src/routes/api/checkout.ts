@@ -2,7 +2,21 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { isValidReceiptEmail, parseUsdAmount } from "@/lib/payment-validation";
 
-const CHECKOUT_API_URL = "https://connector-gateway.lovable.dev/udc_bachs_payments_2/v1/checkout-sessions";
+const CHECKOUT_API_URL = "https://api.bachs.io/v1/checkout-sessions";
+
+// Bachs rejects success_url/cancel_url that point at a machine-only address,
+// so redirect links are only sent when the site is reachable from the internet.
+function isPubliclyReachable(origin: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname;
+  return host !== "localhost" && !host.endsWith(".localhost") && !/^\d+\.\d+\.\d+\.\d+$/.test(host) && host !== "[::1]";
+}
 
 export const Route = createFileRoute("/api/checkout")({
   server: {
@@ -35,11 +49,19 @@ export const Route = createFileRoute("/api/checkout")({
           return Response.json({ error: "Enter a valid amount and receipt email." }, { status: 400 });
         }
 
-        const apiKey = process.env["UDC_BACHS_PAYMENTS_2_API_KEY"];
-        const lovableApiKey = process.env["LOVABLE_API_KEY"];
-        if (!apiKey || !lovableApiKey) {
-          console.error("Bachs checkout connection credentials are unavailable.");
+        const apiKey = process.env["BACHS_API_KEY"];
+        if (!apiKey) {
+          console.error("Bachs payment credentials are unavailable.");
           return Response.json({ error: "Payments are temporarily unavailable. Please try again later." }, { status: 503 });
+        }
+
+        const payload: Record<string, unknown> = {
+          pricing: { amount, currency: "USD" },
+          customer: { email: input.email.trim() },
+        };
+        if (isPubliclyReachable(requestOrigin)) {
+          payload["success_url"] = `${requestOrigin}/?payment=complete`;
+          payload["cancel_url"] = `${requestOrigin}/?payment=cancelled`;
         }
 
         let upstream: Response;
@@ -47,17 +69,11 @@ export const Route = createFileRoute("/api/checkout")({
           upstream = await fetch(CHECKOUT_API_URL, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${lovableApiKey}`,
-              "X-Connection-Api-Key": apiKey,
+              Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
               "Idempotency-Key": crypto.randomUUID(),
             },
-            body: JSON.stringify({
-              pricing: { amount, currency: "USD" },
-              customer: { email: input.email.trim() },
-              success_url: `${requestOrigin}/?payment=complete`,
-              cancel_url: `${requestOrigin}/?payment=cancelled`,
-            }),
+            body: JSON.stringify(payload),
           });
         } catch (error) {
           console.error("Bachs checkout request failed:", error);
