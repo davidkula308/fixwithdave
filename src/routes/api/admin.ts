@@ -124,7 +124,7 @@ async function isRateLimited(request: Request): Promise<boolean> {
     .select("id", { count: "exact", head: true })
     .eq("attempt_key", attemptKey)
     .gt("attempted_at", new Date(Date.now() - 15 * 60 * 1000).toISOString());
-  return !error && (count ?? 0) >= 8;
+  return Boolean(error) || (count ?? 0) >= 8;
 }
 
 async function recordFailedAttempt(request: Request): Promise<void> {
@@ -235,7 +235,7 @@ export const Route = createFileRoute("/api/admin")({
           typeof description !== "string" || description.length > 2000 ||
           typeof showPrice !== "boolean" || typeof imageAlt !== "string" || imageAlt.length > 180 ||
           !isImageData(imageData) || (id !== undefined && typeof id !== "string") ||
-          Number.isNaN(validPrice) || (showPrice && (validPrice === null || validPrice <= 0))
+          (showPrice && (validPrice === null || Number.isNaN(validPrice) || validPrice <= 0))
         ) {
           return Response.json({ error: "Enter a title and a valid price, description, and image." }, { status: 400 });
         }
@@ -248,7 +248,7 @@ export const Route = createFileRoute("/api/admin")({
           image_alt: imageAlt.trim() || title.trim(),
           items: descriptionLines,
           show_price: showPrice,
-          price_usd: validPrice,
+          price_usd: showPrice ? validPrice : null,
           updated_at: new Date().toISOString(),
         };
 
