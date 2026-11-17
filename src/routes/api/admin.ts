@@ -1,10 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { Tables, TablesInsert } from "@/integrations/supabase/types";
+import type { TablesInsert } from "@/integrations/supabase/types";
 
 type ServiceRow = Tables<"techtally_services">;
-type ServiceSave = Pick<ServiceRow, "title" | "description" | "image_data" | "image_alt" | "show_price" | "price_usd"> & {
-  id?: string;
-};
+type ServiceRow = import("@/integrations/supabase/types").Tables<"techtally_services">;
 
 const SESSION_COOKIE = "techtally_admin_session";
 const SESSION_SECONDS = 60 * 60 * 12;
@@ -108,7 +106,12 @@ async function pinMatches(pin: string): Promise<boolean> {
   const expected = decodeBase64Url(data.code_hash);
   if (!expected || expected.length !== bits.length) return false;
   let difference = 0;
-  for (let index = 0; index < bits.length; index += 1) difference |= bits[index]! ^ expected[index]!;
+  for (let index = 0; index < bits.length; index += 1) {
+    const actualByte = bits[index];
+    const expectedByte = expected[index];
+    if (actualByte === undefined || expectedByte === undefined) return false;
+    difference |= actualByte ^ expectedByte;
+  }
   return difference === 0;
 }
 
@@ -196,6 +199,17 @@ export const Route = createFileRoute("/api/admin")({
           return withSessionCookie(Response.json({ signedIn: true }, { headers: { "Cache-Control": "no-store" } }), token, request);
         }
 
+        if (input["action"] === "logout") {
+          const token = getCookie(request, SESSION_COOKIE);
+          const tokenHash = token ? await hmacSessionToken(token) : null;
+          if (tokenHash) {
+            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+            const { error } = await supabaseAdmin.from("techtally_admin_sessions").delete().eq("token_hash", tokenHash);
+            if (error) console.error("Could not end an admin session.", error);
+          }
+          return clearSessionCookie(Response.json({ signedOut: true }, { headers: { "Cache-Control": "no-store" } }), request);
+        }
+
         if (!(await verifyAdminSession(request))) {
           return Response.json({ error: "Your admin session has expired. Please sign in again." }, { status: 401 });
         }
@@ -213,11 +227,17 @@ export const Route = createFileRoute("/api/admin")({
             ? Number(input["price_usd"])
             : Number.NaN;
 
+        const validPrice = input["price_usd"] === "" || input["price_usd"] == null
+          ? null
+          : typeof input["price_usd"] === "string" && /^\d+(?:\.\d{1,2})?$/.test(input["price_usd"])
+            ? Number(input["price_usd"])
+            : Number.NaN;
+
         if (typeof title !== "string" || !title.trim() || title.trim().length > 100 ||
             typeof description !== "string" || description.length > 2000 ||
             typeof showPrice !== "boolean" || typeof imageAlt !== "string" || imageAlt.length > 180 ||
             !isImageData(imageData) || (id !== undefined && typeof id !== "string") ||
-            (showPrice && (parsedPrice === null || !Number.isFinite(parsedPrice) || parsedPrice <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(String(input["price_usd"])))) {
+            Number.isNaN(validPrice) || (showPrice && (validPrice === null || validPrice <= 0))) {
           return Response.json({ error: "Enter a title and a valid price, description, and image." }, { status: 400 });
         }
 
@@ -229,7 +249,7 @@ export const Route = createFileRoute("/api/admin")({
           image_alt: imageAlt.trim() || title.trim(),
           items: descriptionLines,
           show_price: showPrice,
-          price_usd: showPrice ? parsedPrice : null,
+          price_usd: validPrice,
           updated_at: new Date().toISOString(),
         };
 
