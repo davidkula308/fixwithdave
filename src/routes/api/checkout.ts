@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { isValidReceiptEmail, parseUsdAmount } from "@/lib/payment-validation";
+import { resolveCheckoutServicePrice } from "@/lib/service-pricing";
 
 const CHECKOUT_API_URL = "https://api.bachs.io/v1/checkout-sessions";
 
@@ -43,10 +44,27 @@ export const Route = createFileRoute("/api/checkout")({
           return Response.json({ error: "Invalid checkout request." }, { status: 400 });
         }
 
-        const input = body as { amount?: unknown; email?: unknown };
-        const amount = parseUsdAmount(input.amount);
-        if (!amount || !isValidReceiptEmail(input.email)) {
-          return Response.json({ error: "Enter a valid amount and receipt email." }, { status: 400 });
+        const input = body as { amount?: unknown; email?: unknown; serviceId?: unknown };
+        if (!isValidReceiptEmail(input.email)) {
+          return Response.json({ error: "Enter a valid receipt email." }, { status: 400 });
+        }
+
+        let amount: string | null = null;
+        if (typeof input.serviceId === "string") {
+          const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+          const { data: service, error } = await supabaseAdmin
+            .from("techtally_services")
+            .select("price_usd, show_price, is_visible")
+            .eq("id", input.serviceId)
+            .maybeSingle();
+          if (error || !service?.is_visible || !service.show_price) {
+            return Response.json({ error: "This service does not have a fixed price." }, { status: 400 });
+          }
+          amount = resolveCheckoutServicePrice(service, input.amount);
+          if (!amount) return Response.json({ error: "This service does not have a valid fixed price." }, { status: 400 });
+        } else {
+          amount = parseUsdAmount(input.amount);
+          if (!amount) return Response.json({ error: "Enter a valid amount." }, { status: 400 });
         }
 
         const apiKey = process.env["BACHS_API_KEY"];

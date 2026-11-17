@@ -1,6 +1,5 @@
 # Current work
-- [x] Add admin session storage for securely signed-in editor sessions.
-- [x] Seed the service catalog, hashed admin codes, and login throttling.
-- [ ] Add the code-protected service editor, code replacement, image upload, and public catalog display.
+- [x] Add the code-protected service editor, image upload, and live public catalog display.
+- [x] Add server-enforced fixed-price checkout and apply the three requested demonstration prices.
 - [x] Connect custom USD payments to the Bachs checkout overlay using the BACHS_API_KEY project secret.
 - [x] Run targeted tests and verify checkout setup in the preview; no live payment was submitted.

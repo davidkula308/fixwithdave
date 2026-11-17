@@ -10,11 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiAdminRouteImport } from './routes/api/admin'
+import { Route as ApiCatalogRouteImport } from './routes/api/catalog'
 import { Route as ApiCheckoutRouteImport } from './routes/api/checkout'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminRoute = ApiAdminRouteImport.update({
+  id: '/api/admin',
+  path: '/api/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCatalogRoute = ApiCatalogRouteImport.update({
+  id: '/api/catalog',
+  path: '/api/catalog',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCheckoutRoute = ApiCheckoutRouteImport.update({
@@ -25,27 +37,35 @@ const ApiCheckoutRoute = ApiCheckoutRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/admin': typeof ApiAdminRoute
+  '/api/catalog': typeof ApiCatalogRoute
   '/api/checkout': typeof ApiCheckoutRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/admin': typeof ApiAdminRoute
+  '/api/catalog': typeof ApiCatalogRoute
   '/api/checkout': typeof ApiCheckoutRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/admin': typeof ApiAdminRoute
+  '/api/catalog': typeof ApiCatalogRoute
   '/api/checkout': typeof ApiCheckoutRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/checkout'
+  fullPaths: '/' | '/api/admin' | '/api/catalog' | '/api/checkout'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/checkout'
-  id: '__root__' | '/' | '/api/checkout'
+  to: '/' | '/api/admin' | '/api/catalog' | '/api/checkout'
+  id: '__root__' | '/' | '/api/admin' | '/api/catalog' | '/api/checkout'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiAdminRoute: typeof ApiAdminRoute
+  ApiCatalogRoute: typeof ApiCatalogRoute
   ApiCheckoutRoute: typeof ApiCheckoutRoute
 }
 
@@ -56,6 +76,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin': {
+      id: '/api/admin'
+      path: '/api/admin'
+      fullPath: '/api/admin'
+      preLoaderRoute: typeof ApiAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/catalog': {
+      id: '/api/catalog'
+      path: '/api/catalog'
+      fullPath: '/api/catalog'
+      preLoaderRoute: typeof ApiCatalogRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/checkout': {
@@ -70,6 +104,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiAdminRoute: ApiAdminRoute,
+  ApiCatalogRoute: ApiCatalogRoute,
   ApiCheckoutRoute: ApiCheckoutRoute,
 }
 export const routeTree = rootRouteImport
