@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { TablesInsert } from "@/integrations/supabase/types";
+import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 
 type ServiceRow = Tables<"techtally_services">;
-type ServiceRow = import("@/integrations/supabase/types").Tables<"techtally_services">;
 
 const SESSION_COOKIE = "techtally_admin_session";
 const SESSION_SECONDS = 60 * 60 * 12;
@@ -221,12 +220,6 @@ export const Route = createFileRoute("/api/admin")({
         const showPrice = input["show_price"];
         const imageAlt = input["image_alt"];
         const id = input["id"];
-        const parsedPrice = input["price_usd"] === "" || input["price_usd"] == null
-          ? null
-          : typeof input["price_usd"] === "string" && /^\d+(?:\.\d{1,2})?$/.test(input["price_usd"])
-            ? Number(input["price_usd"])
-            : Number.NaN;
-
         const validPrice = input["price_usd"] === "" || input["price_usd"] == null
           ? null
           : typeof input["price_usd"] === "string" && /^\d+(?:\.\d{1,2})?$/.test(input["price_usd"])

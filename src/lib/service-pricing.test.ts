@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getFixedServicePrice } from "./service-pricing";
+import { getFixedServicePrice, resolveCheckoutServicePrice } from "./service-pricing";
 
 describe("fixed service pricing", () => {
   it("formats the three demonstration prices for fixed checkout", () => {
@@ -13,5 +13,9 @@ describe("fixed service pricing", () => {
     expect(getFixedServicePrice(false, 317.22)).toBeNull();
     expect(getFixedServicePrice(true, 0)).toBeNull();
     expect(getFixedServicePrice(true, "not a price")).toBeNull();
+  });
+
+  it("uses the saved service price even when a customer submits a different amount", () => {
+    expect(resolveCheckoutServicePrice({ show_price: true, price_usd: 317.22 }, "1.00")).toBe("317.22");
   });
 });
