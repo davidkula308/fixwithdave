@@ -231,7 +231,6 @@ function resolveServiceImage(serviceKey: string | null, imageData: string): stri
 }
 
 function catalogCard(service: ServiceRow, index: number): ServiceCardData {
-  const descriptionItems = service.description.split(/\\n|\r?\n/).map((line) => line.trim()).filter(Boolean);
   const palette = [
     { letter: "M", iconColor: "text-blue-600", iconBg: "bg-blue-600/10" },
     { letter: "A", iconColor: "text-orange-600", iconBg: "bg-orange-600/10" },
@@ -245,7 +244,7 @@ function catalogCard(service: ServiceRow, index: number): ServiceCardData {
     sectionId: service.service_key || service.id,
     title: service.title,
     description: service.description.replace(/\\n/g, "\n"),
-    items: descriptionItems.length ? descriptionItems : service.items,
+    items: service.items,
     highlight: service.highlight,
     tag: service.tag,
     img: resolveServiceImage(service.service_key, service.image_data),

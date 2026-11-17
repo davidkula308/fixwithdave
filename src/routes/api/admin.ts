@@ -43,7 +43,12 @@ async function hmacSessionToken(token: string): Promise<string | null> {
 function getCookie(request: Request, name: string): string | null {
   const cookieHeader = request.headers.get("cookie") ?? "";
   const entry = cookieHeader.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
-  return entry ? decodeURIComponent(entry.slice(name.length + 1)) : null;
+  if (!entry) return null;
+  try {
+    return decodeURIComponent(entry.slice(name.length + 1));
+  } catch {
+    return null;
+  }
 }
 
 function withSessionCookie(response: Response, token: string, request: Request): Response {
