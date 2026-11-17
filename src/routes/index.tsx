@@ -110,7 +110,7 @@ function PaymentDialog({ open, onOpenChange, fixedAmount, serviceId }: { open: b
       const response = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: fixedAmount ?? amount.trim(), email: email.trim(), serviceId: serviceId ?? undefined }),
+                body: JSON.stringify({ amount: fixedAmount ?? amount.trim(), email: email.trim(), serviceId: serviceId ?? undefined }),
       });
       const result = (await response.json()) as { checkoutUrl?: string; error?: string };
       if (!response.ok || !result.checkoutUrl) {

@@ -60,7 +60,7 @@ export const Route = createFileRoute("/api/checkout")({
           if (error || !service?.is_visible || !service.show_price) {
             return Response.json({ error: "This service does not have a fixed price." }, { status: 400 });
           }
-          amount = resolveCheckoutServicePrice(service);
+          amount = resolveCheckoutServicePrice(service, input.amount);
           if (!amount) return Response.json({ error: "This service does not have a valid fixed price." }, { status: 400 });
         } else {
           amount = parseUsdAmount(input.amount);
@@ -77,9 +77,6 @@ export const Route = createFileRoute("/api/checkout")({
           pricing: { amount, currency: "USD" },
           customer: { email: input.email.trim() },
         };
-        if (typeof input.serviceId === "string") {
-          payload["metadata"] = { service_id: input.serviceId };
-        }
         if (isPubliclyReachable(requestOrigin)) {
           payload["success_url"] = `${requestOrigin}/?payment=complete`;
           payload["cancel_url"] = `${requestOrigin}/?payment=cancelled`;

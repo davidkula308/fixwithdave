@@ -7,7 +7,9 @@ export function getFixedServicePrice(showPrice: boolean, value: unknown): string
 
 export function resolveCheckoutServicePrice(
   service: { show_price: boolean; price_usd: number | null },
+  submittedAmount: unknown,
 ): string | null {
+  void submittedAmount;
   if (!service.show_price) return null;
   const savedAmount = getFixedServicePrice(service.show_price, service.price_usd);
   if (!savedAmount) return null;

@@ -165,6 +165,10 @@ export const Route = createFileRoute("/api/admin")({
         if (!request.headers.get("content-type")?.includes("application/json")) {
           return Response.json({ error: "Invalid request." }, { status: 415 });
         }
+        const contentLength = Number(request.headers.get("content-length") ?? 0);
+        if (contentLength > MAX_IMAGE_LENGTH + 100_000) {
+          return Response.json({ error: "That image is too large. Choose an image up to 4 MB." }, { status: 413 });
+        }
         let body: unknown;
         try {
           body = await request.json();
