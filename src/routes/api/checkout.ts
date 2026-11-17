@@ -60,8 +60,8 @@ export const Route = createFileRoute("/api/checkout")({
           customer: { email: input.email.trim() },
         };
         if (isPubliclyReachable(requestOrigin)) {
-          payload.success_url = `${requestOrigin}/?payment=complete`;
-          payload.cancel_url = `${requestOrigin}/?payment=cancelled`;
+          payload["success_url"] = `${requestOrigin}/?payment=complete`;
+          payload["cancel_url"] = `${requestOrigin}/?payment=cancelled`;
         }
 
         let upstream: Response;
