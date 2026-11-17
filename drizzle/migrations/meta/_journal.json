@@ -29,6 +29,13 @@
       "when": 1794920774220,
       "tag": "0003_create_techtally_payment_events",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794922946538,
+      "tag": "0004_add_service_categories_and_tabs",
+      "breakpoints": true
     }
   ]
 }

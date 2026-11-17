@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Activity, ImageUp, LogOut, MessageCircle, Menu, Pencil, Plus, RefreshCw } from "lucide-react";
+import { Activity, ImageUp, LogOut, MessageCircle, Menu, Pencil, Plus, RefreshCw, Sparkles } from "lucide-react";
+
+import { AiServiceWizard, type CustomTab } from "@/components/admin/AiServiceWizard";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Tables } from "@/integrations/supabase/types";
 import { getFixedServicePrice } from "@/lib/service-pricing";
 import { labelForEventType } from "@/lib/bachs-webhook";
+import { BUILTIN_TABS, tabSectionId } from "@/lib/service-categories";
 import techtallyIcon from "../assets/techtally-icon.png";
 import serviceOffice from "../assets/service-office.jpg";
 import serviceCad from "../assets/service-cad.jpg";
@@ -213,6 +216,7 @@ type ServiceCardData = {
   imgAlt: string;
   price: number | null;
   showPrice: boolean;
+  category: string;
   letter: string;
   iconColor: string;
   iconBg: string;
@@ -252,6 +256,7 @@ function catalogCard(service: ServiceRow, index: number): ServiceCardData {
     imgAlt: service.image_alt || service.title,
     price: service.price_usd,
     showPrice: service.show_price,
+    category: service.category || "services",
     letter: tone.letter,
     iconColor: tone.iconColor,
     iconBg: tone.iconBg,
@@ -348,6 +353,16 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"services" | "payments">("services");
+  const [tabs, setTabs] = useState<CustomTab[]>([]);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [category, setCategory] = useState("services");
+
+  const loadTabs = async () => {
+    const response = await fetch("/api/admin?view=tabs", { cache: "no-store" });
+    const result = (await response.json()) as CustomTab[] | { error?: string };
+    if (response.ok && Array.isArray(result)) setTabs(result.map((tab) => ({ slug: tab.slug, label: tab.label })));
+  };
+  const tabLabel = (slug: string) => [...BUILTIN_TABS, ...tabs].find((tab) => tab.slug === slug)?.label ?? "Services";
 
   const loadServices = async () => {
     const response = await fetch("/api/admin", { cache: "no-store" });
@@ -361,6 +376,8 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
   const startEditing = (service: ServiceRow | null) => {
     setActiveService(service);
     setCreating(service === null);
+    setAiOpen(false);
+    setCategory(service?.category || "services");
     setTitle(service?.title ?? "");
     setDescription(service?.description.replace(/\\n/g, "\n") ?? "");
     setImageData(service?.image_data ?? "");
@@ -404,7 +421,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
       const result = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not sign in.");
       setCode("");
-      await loadServices();
+      await Promise.all([loadServices(), loadTabs()]);
       setSignedIn(true);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Could not sign in.");
@@ -438,6 +455,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
           image_alt: imageAlt,
           show_price: showPrice,
           price_usd: price,
+          category,
         }),
       });
       const result = (await response.json()) as ServiceRow[] | { error?: string };
@@ -466,6 +484,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
       }
       setSignedIn(false);
       setView("services");
+      setAiOpen(false);
       setActiveService(null);
       setCreating(false);
       setError("");
@@ -509,7 +528,17 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
               <section className="space-y-3" aria-labelledby="admin-services-heading">
                 <div className="flex items-center justify-between gap-2">
                   <h3 id="admin-services-heading" className="font-semibold">Services ({services.length})</h3>
-                  <Button type="button" size="sm" onClick={() => startEditing(null)}><Plus /> Add service</Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => startEditing(null)}><Plus /> Add service</Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => { setActiveService(null); setCreating(false); setError(""); setAiOpen(true); }}
+                      className="bg-gradient-to-r from-primary via-primary to-accent text-primary-foreground shadow-md hover:opacity-90"
+                    >
+                      <Sparkles /> Add with AI
+                    </Button>
+                  </div>
                 </div>
                 <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
                   {services.map((service) => (
@@ -517,7 +546,8 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
                       <img src={resolveServiceImage(service.service_key, service.image_data)} alt={service.image_alt || service.title} className="h-16 w-[4.5rem] rounded-md object-cover" />
                       <div className="min-w-0">
                         <h4 className="truncate text-sm font-semibold">{service.title}</h4>
-                        <p className="line-clamp-2 whitespace-pre-line text-xs text-muted-foreground">{service.description}</p>
+                        <p className="text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">{tabLabel(service.category || "services")}</p>
+                        <p className="line-clamp-2 whitespace-pre-line text-xs text-muted-foreground">{service.description.replace(/\\n/g, "\n")}</p>
                         {service.show_price && service.price_usd !== null && <p className="mt-1 text-xs font-semibold text-primary">${Number(service.price_usd).toFixed(2)} USD</p>}
                       </div>
                       <Button type="button" variant="outline" size="sm" onClick={() => startEditing(service)} aria-label={`Edit ${service.title}`}><Pencil /> Edit</Button>
@@ -527,7 +557,13 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
               </section>
 
               <section className="min-w-0 border-t border-border pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0" aria-label={creating ? "Add service" : activeService ? "Edit service" : "Service editor"}>
-                {activeService || creating ? (
+                {aiOpen ? (
+                  <AiServiceWizard
+                    tabs={tabs}
+                    onServicesChanged={(next) => { setServices(next); void loadTabs(); onSaved(); }}
+                    onClose={() => setAiOpen(false)}
+                  />
+                ) : activeService || creating ? (
                   <form onSubmit={handleSave} className="space-y-4">
                     <h3 className="font-semibold">{creating ? "Add service" : "Edit service"}</h3>
                     <div className="space-y-2">
@@ -537,6 +573,17 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
                     <div className="space-y-2">
                       <Label htmlFor="service-description">Description</Label>
                       <Textarea id="service-description" maxLength={2000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="service-tab">Tab</Label>
+                      <select
+                        id="service-tab"
+                        value={category}
+                        onChange={(event) => setCategory(event.target.value)}
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        {[...BUILTIN_TABS, ...tabs].map((tab) => <option key={tab.slug} value={tab.slug}>{tab.label}</option>)}
+                      </select>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="service-image">Service card image</Label>
@@ -575,7 +622,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
                 ) : (
                   <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
                     <Pencil className="h-5 w-5" aria-hidden="true" />
-                    <p>Choose a service to edit, or add a new one.</p>
+                    <p>Choose a service to edit, add a new one, or use Add with AI.</p>
                   </div>
                 )}
               </section>
@@ -669,6 +716,7 @@ const defaultServices: ServiceCardData[] = services.map((service, index) => ({
   description: service.items.join("\n"),
   price: null,
   showPrice: false,
+  category: "services",
 }));
 
 const games = [
@@ -684,13 +732,15 @@ function Index() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [paymentServiceId, setPaymentServiceId] = useState<string | null>(null);
   const [serviceCatalog, setServiceCatalog] = useState<ServiceCardData[]>(defaultServices);
+  const [customTabs, setCustomTabs] = useState<CustomTab[]>([]);
 
   const refreshCatalog = async () => {
     try {
       const response = await fetch("/api/catalog", { cache: "no-store" });
-      const result = (await response.json()) as ServiceRow[] | { error?: string };
-      if (response.ok && Array.isArray(result)) {
-        setServiceCatalog(result.map(catalogCard));
+      const result = (await response.json()) as { services?: ServiceRow[]; tabs?: CustomTab[]; error?: string };
+      if (response.ok && Array.isArray(result.services)) {
+        setServiceCatalog(result.services.map(catalogCard));
+        setCustomTabs((result.tabs ?? []).map((tab) => ({ slug: tab.slug, label: tab.label })));
       }
     } catch (error) {
       console.error("Could not refresh the TechTally service list:", error);
@@ -705,6 +755,60 @@ function Index() {
     setPaymentServiceId(serviceId);
     setPaymentOpen(true);
   };
+
+  const cardsIn = (slug: string) => serviceCatalog.filter((service) => service.category === slug);
+  const mainServices = serviceCatalog.filter(
+    (service) => service.category === "services" || !["gaming", "storage-fix", ...customTabs.map((tab) => tab.slug)].includes(service.category),
+  );
+  const gamingServices = cardsIn("gaming");
+  const storageServices = cardsIn("storage-fix");
+  const visibleCustomTabs = customTabs.filter((tab) => cardsIn(tab.slug).length > 0);
+
+  const renderServiceCard = (s: ServiceCardData) => (
+    <div
+      key={s.id}
+      id={s.sectionId}
+      className="group overflow-hidden rounded-2xl border border-slate-100 bg-background p-0 text-secondary transition-all duration-300 hover:bg-card hover:shadow-xl"
+    >
+      <div className="relative">
+        <img
+          src={s.img}
+          alt={s.imgAlt}
+          width={800}
+          height={512}
+          loading="lazy"
+          className="aspect-[8/5] w-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
+        <div
+          className={`absolute -bottom-6 left-8 flex h-12 w-12 items-center justify-center rounded-lg shadow-lg ${s.iconBg} ${s.iconColor} bg-card`}
+        >
+          <span className="font-bold">{s.letter}</span>
+        </div>
+      </div>
+      <div className="p-8 pt-10">
+        <h3 className="mb-3 text-xl font-bold italic">{s.title}</h3>
+        <ul className="mb-6 space-y-2 text-sm text-slate-600">
+          {s.items.map((item) => (
+            <li key={item}>• {item}</li>
+          ))}
+          {s.highlight && <li className="font-bold text-primary">{s.highlight}</li>}
+        </ul>
+        <div className="flex items-center justify-between border-t border-slate-200 pt-4">
+          <span className="text-xs font-bold uppercase text-slate-400">{s.tag}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-sm font-bold text-primary group-hover:underline">
+              Book Now →
+            </a>
+            <Button type="button" size="sm" onClick={() => openPayment(s.showPrice ? s.id : null)}>
+              {s.showPrice && getFixedServicePrice(s.showPrice, s.price)
+                ? `Pay $${getFixedServicePrice(s.showPrice, s.price)} USD`
+                : "Pay Now"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   const fixedPriceService = serviceCatalog.find((service) => service.id === paymentServiceId);
   const fixedPaymentAmount = fixedPriceService
@@ -729,6 +833,9 @@ function Index() {
             <a href="#services" className="transition-colors hover:text-primary">Services</a>
             <a href="#gaming" className="transition-colors hover:text-primary">Gaming</a>
             <a href="#storage" className="transition-colors hover:text-primary">Storage Fix</a>
+            {visibleCustomTabs.map((tab) => (
+              <a key={tab.slug} href={`#${tabSectionId(tab.slug)}`} className="transition-colors hover:text-primary">{tab.label}</a>
+            ))}
           </div>
 
           <div className="flex items-center gap-2">
@@ -769,6 +876,7 @@ function Index() {
               ...serviceCatalog.map((service) => ({ title: service.title, href: `#${service.sectionId}` })),
               { title: "Storage Fix", href: "#storage" },
               { title: "Gaming", href: "#gaming" },
+              ...visibleCustomTabs.map((tab) => ({ title: tab.label, href: `#${tabSectionId(tab.slug)}` })),
             ].map((item) => (
               <a
                 key={item.title}
@@ -849,56 +957,7 @@ function Index() {
           </div>
 
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {serviceCatalog.map((s) => (
-              <div
-                key={s.id}
-                id={s.sectionId}
-                className="group overflow-hidden rounded-2xl border border-slate-100 bg-background p-0 transition-all duration-300 hover:bg-card hover:shadow-xl"
-              >
-                <div className="relative">
-                  <img
-                    src={s.img}
-                    alt={s.imgAlt}
-                    width={800}
-                    height={512}
-                    loading="lazy"
-                    className="aspect-[8/5] w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                  <div
-                    className={`absolute -bottom-6 left-8 flex h-12 w-12 items-center justify-center rounded-lg shadow-lg ${s.iconBg} ${s.iconColor} bg-card`}
-                  >
-                    <span className="font-bold">{s.letter}</span>
-                  </div>
-                </div>
-                <div className="p-8 pt-10">
-                <h3 className="mb-3 text-xl font-bold italic">{s.title}</h3>
-                <ul className="mb-6 space-y-2 text-sm text-slate-600">
-                  {s.items.map((item) => (
-                    <li key={item}>• {item}</li>
-                  ))}
-                  {s.highlight && <li className="font-bold text-primary">{s.highlight}</li>}
-                </ul>
-                <div className="flex items-center justify-between border-t border-slate-200 pt-4">
-                  <span className="text-xs font-bold uppercase text-slate-400">{s.tag}</span>
-                    <div className="flex flex-wrap items-center gap-2">
-                    <a
-                    href={WHATSAPP_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-bold text-primary group-hover:underline"
-                  >
-                    Book Now →
-                  </a>
-                    <Button type="button" size="sm" onClick={() => openPayment(s.showPrice ? s.id : null)}>
-                      {s.showPrice && getFixedServicePrice(s.showPrice, s.price)
-                        ? `Pay $${getFixedServicePrice(s.showPrice, s.price)} USD`
-                        : "Pay Now"}
-                    </Button>
-                    </div>
-                </div>
-                </div>
-              </div>
-            ))}
+            {mainServices.map(renderServiceCard)}
           </div>
         </div>
       </section>
@@ -953,6 +1012,12 @@ function Index() {
               </div>
             </div>
           </div>
+          {storageServices.length > 0 && (
+            <div className="mt-12">
+              <h3 className="mb-6 text-2xl font-bold italic">More storage services</h3>
+              <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{storageServices.map(renderServiceCard)}</div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -1046,8 +1111,23 @@ function Index() {
               </div>
             ))}
           </div>
+          {gamingServices.length > 0 && (
+            <div className="mt-12">
+              <h3 className="mb-6 text-2xl font-bold italic">More gaming services</h3>
+              <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{gamingServices.map(renderServiceCard)}</div>
+            </div>
+          )}
         </div>
       </section>
+
+      {visibleCustomTabs.map((tab, index) => (
+        <section key={tab.slug} id={tabSectionId(tab.slug)} className={`py-24 ${index % 2 === 0 ? "bg-card" : ""}`}>
+          <div className="mx-auto max-w-7xl px-6">
+            <h2 className="mb-12 text-center text-4xl font-bold italic">{tab.label}</h2>
+            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{cardsIn(tab.slug).map(renderServiceCard)}</div>
+          </div>
+        </section>
+      ))}
 
       {/* CTA */}
       <section className="bg-primary py-24 text-center text-primary-foreground">

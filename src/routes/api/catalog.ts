@@ -28,13 +28,21 @@ export const Route = createFileRoute("/api/catalog")({
     handlers: {
       GET: async () => {
         try {
-          const { data, error } = await createPublicCatalogClient()
-            .from("techtally_services")
-            .select("id, service_key, title, description, image_data, image_alt, items, highlight, tag, price_usd, show_price, sort_order")
-            .eq("is_visible", true)
-            .order("sort_order", { ascending: true });
-          if (error) throw error;
-          return Response.json(data ?? [], { headers: { "Cache-Control": "no-store" } });
+          const client = createPublicCatalogClient();
+          const [servicesResult, tabsResult] = await Promise.all([
+            client
+              .from("techtally_services")
+              .select("id, service_key, title, description, image_data, image_alt, items, highlight, tag, price_usd, show_price, sort_order, category")
+              .eq("is_visible", true)
+              .order("sort_order", { ascending: true }),
+            client.from("techtally_tabs").select("slug, label, sort_order").order("sort_order", { ascending: true }),
+          ]);
+          if (servicesResult.error) throw servicesResult.error;
+          if (tabsResult.error) throw tabsResult.error;
+          return Response.json(
+            { services: servicesResult.data ?? [], tabs: tabsResult.data ?? [] },
+            { headers: { "Cache-Control": "no-store" } },
+          );
         } catch (error) {
           console.error("Public service catalog could not be loaded:", error);
           return Response.json({ error: "Services are temporarily unavailable." }, { status: 503 });

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
+import { BUILTIN_TABS, BUILTIN_TAB_SLUGS, clampServiceCount, cleanTabLabel, slugifyTabLabel, type AiIdeaSource, type AiTheme } from "@/lib/service-categories";
 
 type ServiceRow = Tables<"techtally_services">;
 
@@ -181,9 +182,123 @@ async function listServices() {
   return supabaseAdmin
     .from("techtally_services")
     .select(
-      "id, service_key, title, description, image_data, image_alt, items, highlight, tag, price_usd, show_price, is_visible, sort_order",
+      "id, service_key, title, description, image_data, image_alt, items, highlight, tag, price_usd, show_price, is_visible, sort_order, category",
     )
     .order("sort_order", { ascending: true });
+}
+
+async function listTabs() {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  return supabaseAdmin
+    .from("techtally_tabs")
+    .select("id, slug, label, sort_order")
+    .order("sort_order", { ascending: true });
+}
+
+// Resolves the tab a service is saved under, creating a new custom tab when asked.
+async function resolveCategory(category: unknown, tabLabel: unknown): Promise<string | null> {
+  if (typeof category !== "string") return null;
+  if (BUILTIN_TAB_SLUGS.has(category)) return category;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: existing } = await supabaseAdmin.from("techtally_tabs").select("slug").eq("slug", category).maybeSingle();
+  if (existing) return existing.slug;
+  const label = cleanTabLabel(tabLabel);
+  if (!label || slugifyTabLabel(label) !== category) return null;
+  const { data: tabs } = await listTabs();
+  const maxOrder = Math.max(100, ...(tabs ?? []).map((tab) => tab.sort_order));
+  const { error } = await supabaseAdmin
+    .from("techtally_tabs")
+    .upsert({ slug: category, label, sort_order: maxOrder + 10 }, { onConflict: "slug", ignoreDuplicates: true });
+  if (error) throw error;
+  return category;
+}
+
+async function categoryLabel(category: string): Promise<string | null> {
+  const builtin = BUILTIN_TABS.find((tab) => tab.slug === category);
+  if (builtin) return builtin.label;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin.from("techtally_tabs").select("label").eq("slug", category).maybeSingle();
+  return data?.label ?? null;
+}
+
+async function handleAiDraft(input: Record<string, unknown>, request: Request): Promise<Response> {
+  const count = clampServiceCount(input["count"]);
+  const theme = input["theme"];
+  const ideaSource = input["idea_source"];
+  const idea = typeof input["idea"] === "string" ? input["idea"] : "";
+  const category = input["category"];
+  if (
+    count === null ||
+    (theme !== "gaming" && theme !== "storage-fix" && theme !== "general") ||
+    (ideaSource !== "random" && ideaSource !== "described") ||
+    idea.length > 600 ||
+    typeof category !== "string"
+  ) {
+    return Response.json({ error: "Choose how many services, a tab, and a type of service." }, { status: 400 });
+  }
+  if (ideaSource === "described" && !idea.trim()) {
+    return Response.json({ error: "Describe the services you want, or choose random ideas." }, { status: 400 });
+  }
+  const label = (await categoryLabel(category)) ?? cleanTabLabel(input["tab_label"]);
+  if (!label) return Response.json({ error: "Choose a tab, or give the new tab a name." }, { status: 400 });
+
+  const apiKey = process.env["LOVABLE_API_KEY"];
+  if (!apiKey) return Response.json({ error: "AI is not set up for this site yet." }, { status: 503 });
+
+  const { data: services } = await listServices();
+  const { draftServices, AiRequestError } = await import("@/lib/ai-services.server");
+  try {
+    const drafts = await draftServices({
+      apiKey,
+      count,
+      destinationLabel: label,
+      theme: theme as AiTheme,
+      ideaSource: ideaSource as AiIdeaSource,
+      idea,
+      existingTitles: (services ?? []).map((service) => service.title),
+      signal: request.signal,
+    });
+    if (drafts.length === 0) {
+      return Response.json({ error: "The AI did not come up with new services. Try again or describe what you want." }, { status: 502 });
+    }
+    return Response.json({ drafts }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    if (error instanceof AiRequestError) return Response.json({ error: error.message }, { status: error.status });
+    throw error;
+  }
+}
+
+async function handleAiImage(input: Record<string, unknown>, request: Request): Promise<Response> {
+  const title = input["title"];
+  const scene = typeof input["image_prompt"] === "string" ? input["image_prompt"] : "";
+  if (typeof title !== "string" || !title.trim() || title.length > 100 || scene.length > 400) {
+    return Response.json({ error: "Add a service title before making an image." }, { status: 400 });
+  }
+  const apiKey = process.env["LOVABLE_API_KEY"];
+  if (!apiKey) return Response.json({ error: "AI is not set up for this site yet." }, { status: 503 });
+  const { buildServiceImagePrompt, requestServiceImage, friendlyAiError } = await import("@/lib/ai-services.server");
+  const stream = input["stream"] !== false;
+  let upstream: Response;
+  try {
+    upstream = await requestServiceImage(apiKey, buildServiceImagePrompt(title.trim(), scene.trim()), stream, request.signal);
+  } catch (error) {
+    if (request.signal.aborted) return new Response(null, { status: 499 });
+    console.error("AI image request failed:", error);
+    const friendly = friendlyAiError(null);
+    return Response.json({ error: friendly.message }, { status: friendly.status });
+  }
+  if (!upstream.ok) {
+    console.error(`AI image request failed [${upstream.status}]: ${await upstream.text().catch(() => "")}`);
+    const friendly = friendlyAiError(upstream.status);
+    return Response.json({ error: friendly.message }, { status: friendly.status });
+  }
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
+      "Cache-Control": "no-cache",
+    },
+  });
 }
 
 export const Route = createFileRoute("/api/admin")({
@@ -196,6 +311,11 @@ export const Route = createFileRoute("/api/admin")({
               { error: "Admin sign-in required." },
               { status: 401, headers: { "Cache-Control": "no-store" } },
             );
+          }
+          if (new URL(request.url).searchParams.get("view") === "tabs") {
+            const { data, error } = await listTabs();
+            if (error) throw error;
+            return Response.json(data ?? [], { headers: { "Cache-Control": "no-store" } });
           }
           if (new URL(request.url).searchParams.get("view") === "payment-events") {
             const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -308,6 +428,9 @@ async function handlePost(request: Request): Promise<Response> {
     );
   }
 
+  if (input["action"] === "ai-draft-services") return handleAiDraft(input, request);
+  if (input["action"] === "ai-image") return handleAiImage(input, request);
+
   if (input["action"] !== "save-service")
     return Response.json({ error: "Unsupported admin action." }, { status: 400 });
   const title = input["title"];
@@ -342,6 +465,12 @@ async function handlePost(request: Request): Promise<Response> {
     );
   }
 
+  let category: string | null = null;
+  if (input["category"] !== undefined) {
+    category = await resolveCategory(input["category"], input["tab_label"]);
+    if (!category) return Response.json({ error: "Choose a valid tab for this service." }, { status: 400 });
+  }
+
   const descriptionLines = description
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -355,6 +484,7 @@ async function handlePost(request: Request): Promise<Response> {
     show_price: showPrice,
     price_usd: showPrice ? validPrice : null,
     updated_at: new Date().toISOString(),
+    ...(category ? { category } : {}),
   };
 
   try {

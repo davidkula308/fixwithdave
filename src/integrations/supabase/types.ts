@@ -124,6 +124,7 @@ export type Database = {
       }
       techtally_services: {
         Row: {
+          category: string
           created_at: string
           description: string
           headline: string | null
@@ -142,6 +143,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          category?: string
           created_at?: string
           description?: string
           headline?: string | null
@@ -160,6 +162,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          category?: string
           created_at?: string
           description?: string
           headline?: string | null
@@ -176,6 +179,30 @@ export type Database = {
           tag?: string | null
           title?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      techtally_tabs: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          slug: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          slug: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          slug?: string
+          sort_order?: number
         }
         Relationships: []
       }
