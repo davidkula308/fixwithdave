@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Activity, ImageUp, LogOut, MessageCircle, Menu, Pencil, Plus, RefreshCw, Sparkles } from "lucide-react";
+import { Activity, ImageUp, KeyRound, LogOut, MessageCircle, Menu, MonitorX, Pencil, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 
 import { AiServiceWizard, type CustomTab } from "@/components/admin/AiServiceWizard";
 
@@ -338,6 +338,190 @@ function PaymentActivity() {
   );
 }
 
+type SecurityOverview = {
+  codes: { code_name: string; label: string; updated_at: string }[];
+  other_sessions: number;
+};
+
+const CODE_SLOTS = [
+  { code_name: "primary", label: "Main code" },
+  { code_name: "secondary", label: "Backup code" },
+];
+
+async function postAdmin<T>(body: Record<string, unknown>, fallback: string): Promise<T> {
+  const response = await fetch("/api/admin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new Error(result.error ?? fallback);
+  return result;
+}
+
+function AdminSecurity() {
+  const [overview, setOverview] = useState<SecurityOverview | null>(null);
+  const [editing, setEditing] = useState<{ code_name: string; mode: "change" | "remove" } | null>(null);
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const response = await fetch("/api/admin?view=security", { cache: "no-store" });
+      const result = (await response.json()) as SecurityOverview & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Could not load security settings.");
+      setOverview(result);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load security settings.");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const openForm = (code_name: string, mode: "change" | "remove") => {
+    setEditing({ code_name, mode });
+    setCurrentPin("");
+    setNewPin("");
+    setConfirmPin("");
+    setError("");
+    setNotice("");
+  };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editing) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await postAdmin<SecurityOverview>(
+        editing.mode === "change"
+          ? { action: "change-code", code_name: editing.code_name, current_pin: currentPin, new_pin: newPin, confirm_pin: confirmPin }
+          : { action: "remove-code", code_name: editing.code_name, current_pin: currentPin },
+        "Could not update the code.",
+      );
+      setOverview(result);
+      const label = CODE_SLOTS.find((slot) => slot.code_name === editing.code_name)?.label ?? "Code";
+      setNotice(editing.mode === "change" ? `${label} saved. Every other device has been signed out.` : `${label} removed. Every other device has been signed out.`);
+      setEditing(null);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not update the code.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeOthers = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await postAdmin<SecurityOverview>({ action: "revoke-sessions" }, "Could not sign out other devices.");
+      setOverview(result);
+      setNotice("Every other device has been signed out. You stay signed in here.");
+    } catch (revokeError) {
+      setError(revokeError instanceof Error ? revokeError.message : "Could not sign out other devices.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const savedCodes = overview?.codes ?? [];
+
+  return (
+    <section className="space-y-5" aria-labelledby="admin-security-heading">
+      <div>
+        <h3 id="admin-security-heading" className="font-semibold">Security</h3>
+        <p className="text-xs text-muted-foreground">Change or remove the codes that open this Admin Panel. Any change signs out every other device.</p>
+      </div>
+      {notice && <p role="status" className="rounded-md bg-primary/10 px-3 py-2 text-sm text-primary">{notice}</p>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+
+      <ul className="divide-y divide-border rounded-md border border-border">
+        {CODE_SLOTS.map((slot) => {
+          const saved = savedCodes.find((code) => code.code_name === slot.code_name);
+          const isOpen = editing?.code_name === slot.code_name;
+          return (
+            <li key={slot.code_name} className="space-y-3 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <KeyRound className="h-5 w-5 text-primary" aria-hidden="true" />
+                  <div>
+                    <p className="text-sm font-semibold">{slot.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {overview === null ? "Loading…" : saved ? `In use · last changed ${new Date(saved.updated_at).toLocaleDateString()}` : "Not set"}
+                    </p>
+                  </div>
+                </div>
+                {overview !== null && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => openForm(slot.code_name, "change")} disabled={busy}>
+                      {saved ? <><Pencil /> Change</> : <><Plus /> Add</>}
+                    </Button>
+                    {saved && (
+                      <Button type="button" size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => openForm(slot.code_name, "remove")} disabled={busy || savedCodes.length < 2} title={savedCodes.length < 2 ? "Keep at least one code" : undefined}>
+                        <Trash2 /> Remove
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {isOpen && editing && (
+                <form onSubmit={submit} className="grid gap-3 rounded-md bg-muted/50 p-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label htmlFor={`current-${slot.code_name}`}>{saved && editing.mode === "change" ? `Current ${slot.label.toLowerCase()}` : "Your current admin code"}</Label>
+                    <Input id={`current-${slot.code_name}`} type="password" inputMode="numeric" autoComplete="current-password" value={currentPin} onChange={(event) => setCurrentPin(event.target.value)} required />
+                  </div>
+                  {editing.mode === "change" ? (
+                    <>
+                      <div className="space-y-1">
+                        <Label htmlFor={`new-${slot.code_name}`}>New code (4–12 digits)</Label>
+                        <Input id={`new-${slot.code_name}`} type="password" inputMode="numeric" autoComplete="new-password" value={newPin} onChange={(event) => setNewPin(event.target.value)} required />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor={`confirm-${slot.code_name}`}>Type the new code again</Label>
+                        <Input id={`confirm-${slot.code_name}`} type="password" inputMode="numeric" autoComplete="new-password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value)} required />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground sm:col-span-2 sm:self-end">The {slot.label.toLowerCase()} will stop working straight away.</p>
+                  )}
+                  <div className="flex gap-2 sm:col-span-3">
+                    <Button type="submit" size="sm" variant={editing.mode === "remove" ? "destructive" : "default"} disabled={busy}>
+                      {busy ? "Saving…" : editing.mode === "change" ? "Save new code" : "Remove code"}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)} disabled={busy}>Cancel</Button>
+                  </div>
+                </form>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-4">
+        <div className="flex items-center gap-3">
+          <MonitorX className="h-5 w-5 text-primary" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-semibold">Other signed-in devices</p>
+            <p className="text-xs text-muted-foreground">
+              {overview === null ? "Loading…" : overview.other_sessions === 0 ? "Only this device is signed in." : `${overview.other_sessions} other sign-in${overview.other_sessions === 1 ? "" : "s"} still active.`}
+            </p>
+          </div>
+        </div>
+        <Button type="button" size="sm" variant="outline" onClick={() => void revokeOthers()} disabled={busy || !overview || overview.other_sessions === 0}>
+          <LogOut /> Sign out other devices
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
   const [signedIn, setSignedIn] = useState(false);
   const [code, setCode] = useState("");
@@ -352,7 +536,7 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
   const [price, setPrice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"services" | "payments">("services");
+  const [view, setView] = useState<"services" | "payments" | "security">("services");
   const [tabs, setTabs] = useState<CustomTab[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   const [category, setCategory] = useState("services");
@@ -519,11 +703,12 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => handleClose(false)}><LogOut /> Sign out</Button>
             </div>
-            <div className="flex gap-2" role="tablist" aria-label="Admin sections">
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Admin sections">
               <Button type="button" role="tab" aria-selected={view === "services"} variant={view === "services" ? "default" : "outline"} size="sm" onClick={() => setView("services")}><Pencil /> Services</Button>
               <Button type="button" role="tab" aria-selected={view === "payments"} variant={view === "payments" ? "default" : "outline"} size="sm" onClick={() => setView("payments")}><Activity /> Payment activity</Button>
+              <Button type="button" role="tab" aria-selected={view === "security"} variant={view === "security" ? "default" : "outline"} size="sm" onClick={() => setView("security")}><ShieldCheck /> Security</Button>
             </div>
-            {view === "payments" ? <PaymentActivity /> : (
+            {view === "security" ? <AdminSecurity /> : view === "payments" ? <PaymentActivity /> : (
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
               <section className="space-y-3" aria-labelledby="admin-services-heading">
                 <div className="flex items-center justify-between gap-2">
@@ -863,7 +1048,7 @@ function Index() {
 
       {/* Services Menu Side Panel */}
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-        <SheetContent side="right" className="w-[80vw] sm:max-w-sm">
+        <SheetContent side="right" className="w-[80vw] overflow-y-auto overscroll-contain sm:max-w-sm">
           <SheetHeader className="text-left">
             <SheetTitle className="text-2xl font-bold italic">All Services</SheetTitle>
             <SheetDescription>

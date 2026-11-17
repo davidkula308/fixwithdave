@@ -5,3 +5,6 @@
 - [x] Add a signed Bachs webhook receiver and a Payment activity tab in the Admin Panel.
 - [ ] Register the webhook address in the Bachs dashboard (waiting on the user; signing secret is saved).
 - [x] Add "Add with AI" to the Admin Panel: count + tab (or new tab), idea type, review-first or fully automatic, AI card images.
+- [x] Replace the Bachs webhook signing secret (new value saved through the secure form).
+- [x] Let the side menu scroll on PC so the Admin Panel button is always reachable.
+- [x] Add a Security section in the Admin Panel: change/add/remove admin codes and sign out other devices.

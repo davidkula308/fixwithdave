@@ -1,5 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
+import {
+  adminCodeLabel,
+  adminCodeMatches,
+  encodeBase64Url,
+  hashAdminCode,
+  isAdminCodeName,
+  validateNewAdminCode,
+} from "@/lib/admin-codes";
 import { BUILTIN_TABS, BUILTIN_TAB_SLUGS, clampServiceCount, cleanTabLabel, slugifyTabLabel, type AiIdeaSource, type AiTheme } from "@/lib/service-categories";
 
 type ServiceRow = Tables<"techtally_services">;
@@ -7,22 +15,6 @@ type ServiceRow = Tables<"techtally_services">;
 const SESSION_COOKIE = "techtally_admin_session";
 const SESSION_SECONDS = 60 * 60 * 12;
 const MAX_IMAGE_LENGTH = 5_600_000;
-
-function encodeBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
-}
-
-function decodeBase64Url(value: string): Uint8Array | null {
-  try {
-    const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
-    const binary = atob(normalized + "=".repeat((4 - (normalized.length % 4)) % 4));
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  } catch {
-    return null;
-  }
-}
 
 async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
@@ -103,9 +95,6 @@ function isImageData(value: unknown): value is string {
   );
 }
 
-// Cloudflare Workers reject PBKDF2 above 100,000 iterations, so stored codes use exactly that.
-const PBKDF2_MAX_ITERATIONS = 100_000;
-
 async function pinMatches(pin: string): Promise<boolean> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: rows, error } = await supabaseAdmin
@@ -113,44 +102,113 @@ async function pinMatches(pin: string): Promise<boolean> {
     .select("salt, code_hash, iterations");
   if (error || !rows) return false;
   for (const row of rows) {
-    if (await codeRowMatches(pin, row)) return true;
+    if (await adminCodeMatches(pin, row)) return true;
   }
   return false;
 }
 
-async function codeRowMatches(
-  pin: string,
-  data: { salt: string; code_hash: string; iterations: number },
-): Promise<boolean> {
-  if (
-    !Number.isInteger(data.iterations) ||
-    data.iterations < 10_000 ||
-    data.iterations > PBKDF2_MAX_ITERATIONS
-  ) {
-    return false;
-  }
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, [
-    "deriveBits",
+async function currentTokenHash(request: Request): Promise<string | null> {
+  const token = getCookie(request, SESSION_COOKIE);
+  return token ? hmacSessionToken(token) : null;
+}
+
+async function securityOverview(request: Request) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const [{ data: codes, error: codesError }, { data: sessions, error: sessionsError }] = await Promise.all([
+    supabaseAdmin.from("techtally_admin_codes").select("code_name, updated_at").order("code_name"),
+    supabaseAdmin.from("techtally_admin_sessions").select("token_hash").gt("expires_at", new Date().toISOString()),
   ]);
-  const salt = decodeBase64Url(data.salt);
-  if (!salt) return false;
-  const bits = new Uint8Array(
-    await crypto.subtle.deriveBits(
-      { name: "PBKDF2", hash: "SHA-256", salt: salt as BufferSource, iterations: data.iterations },
-      key,
-      256,
-    ),
-  );
-  const expected = decodeBase64Url(data.code_hash);
-  if (!expected || expected.length !== bits.length) return false;
-  let difference = 0;
-  for (let index = 0; index < bits.length; index += 1) {
-    const actualByte = bits[index];
-    const expectedByte = expected[index];
-    if (actualByte === undefined || expectedByte === undefined) return false;
-    difference |= actualByte ^ expectedByte;
+  if (codesError) throw codesError;
+  if (sessionsError) throw sessionsError;
+  const mine = await currentTokenHash(request);
+  return {
+    codes: (codes ?? []).map((code) => ({ code_name: code.code_name, label: adminCodeLabel(code.code_name), updated_at: code.updated_at })),
+    other_sessions: (sessions ?? []).filter((session) => session.token_hash !== mine).length,
+  };
+}
+
+// Ends every admin sign-in except the one making this request.
+async function revokeOtherSessions(request: Request): Promise<void> {
+  const mine = await currentTokenHash(request);
+  if (!mine) return;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { error } = await supabaseAdmin.from("techtally_admin_sessions").delete().neq("token_hash", mine);
+  if (error) throw error;
+}
+
+// Checks a code typed to confirm a security change, counting wrong guesses like sign-in attempts.
+async function confirmCode(
+  request: Request,
+  pin: unknown,
+  row?: { salt: string; code_hash: string; iterations: number },
+): Promise<Response | null> {
+  if (await isRateLimited(request)) {
+    return Response.json({ error: "Too many attempts. Please try again in 15 minutes." }, { status: 429 });
   }
-  return difference === 0;
+  const ok =
+    typeof pin === "string" &&
+    /^\d{4,12}$/.test(pin) &&
+    (row ? await adminCodeMatches(pin, row) : await pinMatches(pin));
+  if (!ok) {
+    await recordFailedAttempt(request);
+    return Response.json({ error: "The current code is not correct." }, { status: 403 });
+  }
+  return null;
+}
+
+async function handleSecurity(input: Record<string, unknown>, request: Request): Promise<Response> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const action = input["action"];
+
+  if (action === "revoke-sessions") {
+    await revokeOtherSessions(request);
+    return Response.json(await securityOverview(request), { headers: { "Cache-Control": "no-store" } });
+  }
+
+  const codeName = input["code_name"];
+  if (!isAdminCodeName(codeName)) return Response.json({ error: "Choose which code to change." }, { status: 400 });
+  const { data: rows, error } = await supabaseAdmin
+    .from("techtally_admin_codes")
+    .select("code_name, salt, code_hash, iterations");
+  if (error) throw error;
+  const target = (rows ?? []).find((row) => row.code_name === codeName);
+  const others = (rows ?? []).filter((row) => row.code_name !== codeName);
+
+  if (action === "change-code") {
+    const invalid = validateNewAdminCode(input["new_pin"], input["confirm_pin"]);
+    if (invalid) return Response.json({ error: invalid }, { status: 400 });
+    // Changing an existing code needs that code; adding a missing one needs any current code.
+    const denied = await confirmCode(request, input["current_pin"], target);
+    if (denied) return denied;
+    const newPin = input["new_pin"] as string;
+    for (const other of others) {
+      if (await adminCodeMatches(newPin, other)) {
+        return Response.json({ error: "Your other admin code already uses those digits. Choose different ones." }, { status: 400 });
+      }
+    }
+    const hashed = await hashAdminCode(newPin);
+    const { error: saveError } = await supabaseAdmin
+      .from("techtally_admin_codes")
+      .upsert({ code_name: codeName, ...hashed, updated_at: new Date().toISOString() }, { onConflict: "code_name" });
+    if (saveError) throw saveError;
+    await revokeOtherSessions(request);
+    return Response.json(await securityOverview(request), { headers: { "Cache-Control": "no-store" } });
+  }
+
+  if (action === "remove-code") {
+    if (!target) return Response.json({ error: "That code is already removed." }, { status: 404 });
+    if (others.length === 0) {
+      return Response.json({ error: "Keep at least one admin code, or you will be locked out." }, { status: 400 });
+    }
+    const denied = await confirmCode(request, input["current_pin"]);
+    if (denied) return denied;
+    const { error: deleteError } = await supabaseAdmin.from("techtally_admin_codes").delete().eq("code_name", codeName);
+    if (deleteError) throw deleteError;
+    await revokeOtherSessions(request);
+    return Response.json(await securityOverview(request), { headers: { "Cache-Control": "no-store" } });
+  }
+
+  return Response.json({ error: "Unsupported admin action." }, { status: 400 });
 }
 
 async function isRateLimited(request: Request): Promise<boolean> {
@@ -317,6 +375,9 @@ export const Route = createFileRoute("/api/admin")({
             if (error) throw error;
             return Response.json(data ?? [], { headers: { "Cache-Control": "no-store" } });
           }
+          if (new URL(request.url).searchParams.get("view") === "security") {
+            return Response.json(await securityOverview(request), { headers: { "Cache-Control": "no-store" } });
+          }
           if (new URL(request.url).searchParams.get("view") === "payment-events") {
             const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
             const { data, error } = await supabaseAdmin
@@ -430,6 +491,9 @@ async function handlePost(request: Request): Promise<Response> {
 
   if (input["action"] === "ai-draft-services") return handleAiDraft(input, request);
   if (input["action"] === "ai-image") return handleAiImage(input, request);
+  if (input["action"] === "change-code" || input["action"] === "remove-code" || input["action"] === "revoke-sessions") {
+    return handleSecurity(input, request);
+  }
 
   if (input["action"] !== "save-service")
     return Response.json({ error: "Unsupported admin action." }, { status: 400 });
