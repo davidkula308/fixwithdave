@@ -77,6 +77,9 @@ export const Route = createFileRoute("/api/checkout")({
           pricing: { amount, currency: "USD" },
           customer: { email: input.email.trim() },
         };
+        if (typeof input.serviceId === "string") {
+          payload["metadata"] = { service_id: input.serviceId };
+        }
         if (isPubliclyReachable(requestOrigin)) {
           payload["success_url"] = `${requestOrigin}/?payment=complete`;
           payload["cancel_url"] = `${requestOrigin}/?payment=cancelled`;

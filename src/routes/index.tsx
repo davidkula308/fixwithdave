@@ -154,7 +154,7 @@ function PaymentDialog({ open, onOpenChange, fixedAmount }: { open: boolean; onO
                 inputMode="decimal"
                 autoComplete="off"
                 placeholder="0.00"
-                value={amount}
+                value={fixedAmount ?? amount}
                 onChange={(event) => setAmount(event.target.value)}
                 readOnly={Boolean(fixedAmount)}
                 required
@@ -327,9 +327,9 @@ function AdminPanel({ open, onOpenChange, onSaved }: { open: boolean; onOpenChan
       });
       const result = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not sign in.");
-      setSignedIn(true);
       setCode("");
       await loadServices();
+      setSignedIn(true);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Could not sign in.");
     } finally {
@@ -595,15 +595,6 @@ const games = [
   { img: gameMk, title: "Mortal Kombat", sub: "XL / 11 / 1", alt: "Mortal Kombat fighting game style art" },
 ];
 
-const sideMenu = [
-  { title: "Microsoft 365 Suite", href: "#microsoft-365" },
-  { title: "Arch & Design", href: "#arch-design" },
-  { title: "Windows & Security", href: "#windows-security" },
-  { title: "Assignments & Projects", href: "#assignments" },
-  { title: "Storage Fix", href: "#storage" },
-  { title: "Gaming", href: "#gaming" },
-];
-
 function Index() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -691,7 +682,11 @@ function Index() {
           </SheetHeader>
 
           <div className="mt-8 flex flex-col gap-2">
-            {sideMenu.map((item) => (
+            {[
+              ...serviceCatalog.map((service) => ({ title: service.title, href: `#${service.sectionId}` })),
+              { title: "Storage Fix", href: "#storage" },
+              { title: "Gaming", href: "#gaming" },
+            ].map((item) => (
               <a
                 key={item.title}
                 href={item.href}
